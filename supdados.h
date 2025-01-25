@@ -1,6 +1,7 @@
 #ifndef _SUP_DADOS_H_
 #define _SUP_DADOS_H_
 
+#include <cstdint>
 /// Porta de comunicacao cliente-servidor.
 #define SUP_PORT "23456"
 

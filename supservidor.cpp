@@ -13,12 +13,13 @@ SupServidor::SupServidor()
   : Tanks()
   , server_on(false)
   , LU()
-  /*ACRESCENTAR*/
+  , thr_server()
+  , sock_server()
 {
   // Inicializa a biblioteca de sockets
-  /*ACRESCENTAR*/
+  mysocket_status iResult = mysocket::init();
   // Em caso de erro, mensagem e encerra
-  if (/*MODIFICAR*/true)
+  if (iResult != mysocket_status::SOCK_OK)
   {
     cerr <<  "Biblioteca mysocket nao pode ser inicializada";
     exit(-1);
@@ -34,13 +35,13 @@ SupServidor::~SupServidor()
   // Fecha todos os sockets dos clientes
   for (auto& U : LU) U.close();
   // Fecha o socket de conexoes
-  /*ACRESCENTAR*/
+  sock_server.close();
 
   // Espera o fim da thread do servidor
-  /*ACRESCENTAR*/
+  if (thr_server.joinable()) thr_server.join();
 
   // Encerra a biblioteca de sockets
-  /*ACRESCENTAR*/
+  mysocket::end();
 }
 
 /// Liga o servidor
@@ -58,14 +59,17 @@ bool SupServidor::setServerOn()
   try
   {
     // Coloca o socket de conexoes em escuta
-    /*ACRESCENTAR*/
+    mysocket_status iResult = sock_server.listen(SUP_PORT);
     // Em caso de erro, gera excecao
-    if (/*MODIFICAR*/true) throw 1;
+    if (iResult != mysocket_status::SOCK_OK) throw 1;
 
     // Lanca a thread do servidor que comunica com os clientes
-    /*ACRESCENTAR*/
+    thr_server = thread( [this]()
+    {
+      this->thr_server_main();
+    } );
     // Em caso de erro, gera excecao
-    if (/*MODIFICAR*/true) throw 2;
+    if (!thr_server.joinable()) throw 2;
   }
   catch(int i)
   {
@@ -75,7 +79,7 @@ bool SupServidor::setServerOn()
     server_on = false;
 
     // Fecha o socket do servidor
-    /*ACRESCENTAR*/
+    sock_server.close();
 
     return false;
   }
@@ -96,12 +100,12 @@ void SupServidor::setServerOff()
   // Fecha todos os sockets dos clientes
   for (auto& U : LU) U.close();
   // Fecha o socket de conexoes
-  /*ACRESCENTAR*/
+  sock_server.close();
 
   // Espera pelo fim da thread do servidor
-  /*ACRESCENTAR*/
+  if (thr_server.joinable()) thr_server.join();
   // Faz o identificador da thread apontar para thread vazia
-  /*ACRESCENTAR*/
+  thr_server = thread();
 
   // Desliga os tanques
   setTanksOff();
@@ -188,7 +192,20 @@ bool SupServidor::removeUser(const string& Login)
 void SupServidor::thr_server_main(void)
 {
   // Fila de sockets para aguardar chegada de dados
-  /*ACRESCENTAR*/
+  mysocket_queue f;
+  mysocket_status iResult;
+
+  std::list<User>::iterator iU;
+  uint16_t cmd;
+
+  SupState S;
+
+  uint16_t state, input;
+  bool isOpen;
+
+  tcp_mysocket t;
+
+  string login, password;
 
   while (server_on)
   {
@@ -197,7 +214,7 @@ void SupServidor::thr_server_main(void)
     try
     {
       // Encerra se o socket de conexoes estiver fechado
-      if (/*MODIFICAR*/true)
+      if (sock_server.closed())
       {
         throw "socket de conexoes fechado";
       }
@@ -206,15 +223,130 @@ void SupServidor::thr_server_main(void)
       // quero monitorar para ver se houve chegada de dados
 
       // Limpa a fila de sockets
-      /*ACRESCENTAR*/
+      f.clear();
       // Inclui na fila o socket de conexoes
-      /*ACRESCENTAR*/
+      f.include(sock_server);
       // Inclui na fila todos os sockets dos clientes conectados
-      /*ACRESCENTAR*/
+      for (auto& U : LU){if (U.isConnected()) f.include(U.sock);}
 
       // Espera ateh que chegue dado em algum socket (com timeout)
-      /*ACRESCENTAR*/
+      iResult = f.wait_read(SUP_TIMEOUT*1000);
+      switch (iResult) {
+        case mysocket_status::SOCK_ERROR :
+        default:
+            throw "erro de socket";
+            break;
+        case mysocket_status::SOCK_TIMEOUT :
+            break;
+        case mysocket_status::SOCK_OK :
+            try{
+                for (iU = LU.begin(); server_on && iU != LU.end(); ++iU) {
+                    if (server_on && iU->isConnected() && f.had_activity(iU->sock)) {
+                        iResult = iU->sock.read_uint16(cmd);
+                        if (iResult != mysocket_status::SOCK_OK) throw 1;
 
+                        switch (cmd) {
+                              case CMD_LOGIN:
+                              case CMD_ADMIN_OK:
+                              case CMD_OK:
+                              case CMD_ERROR:
+                              case CMD_DATA:
+                              default:
+                                throw 2;
+                                break;
+                              case CMD_GET_DATA:
+                                readStateFromSensors(S);
+
+                                if (iU->sock.write_uint16(CMD_DATA) != mysocket_status::SOCK_OK) throw 3;
+
+                                if (iU->sock.write_uint16(S.V1) != mysocket_status::SOCK_OK) throw 3;
+                                if (iU->sock.write_uint16(S.V2) != mysocket_status::SOCK_OK) throw 3;
+                                if (iU->sock.write_uint16(S.H1) != mysocket_status::SOCK_OK) throw 3;
+                                if (iU->sock.write_uint16(S.H2) != mysocket_status::SOCK_OK) throw 3;
+                                if (iU->sock.write_uint16(S.PumpInput) != mysocket_status::SOCK_OK) throw 3;
+                                if (iU->sock.write_uint16(S.PumpFlow) != mysocket_status::SOCK_OK) throw 3;
+                                if (iU->sock.write_uint16(S.ovfl) != mysocket_status::SOCK_OK) throw 3;
+
+                                break;
+                              case CMD_SET_V1:
+                                if (!iU->isAdmin) throw 4;
+                                iResult = iU->sock.read_uint16(state, SUP_TIMEOUT*1000);
+                                if (iResult != mysocket_status::SOCK_OK) throw 5;
+                                isOpen = state == 0 ? false : true;
+                                setV1Open(isOpen);
+                                break;
+                              case CMD_SET_V2:
+                                if (!iU->isAdmin) throw 4;
+                                iResult = iU->sock.read_uint16(state, SUP_TIMEOUT*1000);
+                                if (iResult != mysocket_status::SOCK_OK) throw 5;
+                                isOpen = state == 0 ? false : true;
+                                setV2Open(isOpen);
+                                break;
+                              case CMD_SET_PUMP:
+                                if (!iU->isAdmin) throw 4;
+                                iResult = iU->sock.read_uint16(input, SUP_TIMEOUT*1000);
+                                if (iResult != mysocket_status::SOCK_OK) throw 5;
+                                setPumpInput(input);
+                                break;
+                              case CMD_LOGOUT:
+                                iU->close();
+                                break;
+                        }
+                    }
+                }
+            } catch (int err) {
+                if (err == 4) {
+                    cerr << "Usuario nao possui permissao";
+                    iU->sock.write_uint16(CMD_ERROR);
+                } else if (err == 3) cerr << "Erro de envio dos dados"; {
+                    iU->close();
+                }
+            }
+            if (server_on && sock_server.connected() && f.had_activity(sock_server)) {
+                iResult = sock_server.accept(t);
+                if(iResult != mysocket_status::SOCK_OK) throw "status de socket nao ok";
+
+                try {
+                    iResult = t.read_uint16(cmd, SUP_TIMEOUT*1000);
+                    if (iResult != mysocket_status::SOCK_OK) throw 1;
+
+                    if (cmd != CMD_LOGIN) throw 2;
+
+                    iResult = t.read_string(login, SUP_TIMEOUT*1000);
+                    if (iResult != mysocket_status::SOCK_OK) throw 3;
+
+                    iResult = t.read_string(password, SUP_TIMEOUT*1000);
+                    if (iResult != mysocket_status::SOCK_OK) throw 4;
+
+                    iU = find(LU.begin(), LU.end(), login);
+
+                    if (iU == LU.end()) throw 5;
+
+                    if (iU->password != password) throw 6;
+
+                    if (iU->isConnected()) throw 7;
+
+                    iU->sock.swap(t);
+
+                    if (iU->isAdmin) iResult = iU->sock.write_uint16(CMD_ADMIN_OK);
+                    else iResult = iU->sock.write_uint16(CMD_OK);
+                    if (iResult != mysocket_status::SOCK_OK) throw 8;
+
+                } catch (int err) {
+                    if (err >= 5 && err <=7) {
+                        t.write_uint16(CMD_ERROR);
+                        t.close();
+                    } else {
+                        if (err == 8) iU->close();
+                        else t.close();
+                        cerr << "Erro " << err << " na conexao de novo cliente" << endl;
+                    }
+
+                }
+
+            }
+        break;
+      }
       // De acordo com o resultado da espera:
       // SOCK_TIMEOUT:
       // Saiu por timeout: nao houve atividade em nenhum socket
@@ -245,7 +377,7 @@ void SupServidor::thr_server_main(void)
       // Fecha todos os sockets dos clientes
       for (auto& U : LU) U.close();
       // Fecha o socket de conexoes
-      /*ACRESCENTAR*/
+      sock_server.close();
 
       // Os tanques continuam funcionando
 
