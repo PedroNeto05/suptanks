@@ -274,6 +274,10 @@ void SupServidor::thr_server_main(void)
                                 if (iResult != mysocket_status::SOCK_OK) throw 5;
                                 isOpen = state == 0 ? false : true;
                                 setV1Open(isOpen);
+                                iResult = iU->sock.write_uint16(CMD_OK);
+                                if (iResult != mysocket_status::SOCK_OK) throw 6;
+
+                                cout << "CMD_SET_V1 " << state << " DE " << iU->login << " (OK)" << endl;
                                 break;
                               case CMD_SET_V2:
                                 if (!iU->isAdmin) throw 4;
@@ -281,24 +285,37 @@ void SupServidor::thr_server_main(void)
                                 if (iResult != mysocket_status::SOCK_OK) throw 5;
                                 isOpen = state == 0 ? false : true;
                                 setV2Open(isOpen);
+                                iResult = iU->sock.write_uint16(CMD_OK);
+                                if (iResult != mysocket_status::SOCK_OK) throw 6;
+
+                                cout << "CMD_SET_V2 " << state << " DE " << iU->login << " (OK)" << endl;
                                 break;
                               case CMD_SET_PUMP:
                                 if (!iU->isAdmin) throw 4;
                                 iResult = iU->sock.read_uint16(input, SUP_TIMEOUT*1000);
                                 if (iResult != mysocket_status::SOCK_OK) throw 5;
                                 setPumpInput(input);
+                                iResult = iU->sock.write_uint16(CMD_OK);
+                                if (iResult != mysocket_status::SOCK_OK) throw 6;
+
+                                cout << "CMD_SET_PUMP " << input << " DE " << iU->login << " (OK)" << endl;
                                 break;
                               case CMD_LOGOUT:
                                 iU->close();
+
+                                cout << "CMD_LOGOUT " << iU->login << endl;
                                 break;
                         }
                     }
                 }
             } catch (int err) {
                 if (err == 4) {
-                    cerr << "Usuario nao possui permissao";
+                    cerr << "Usuario nao possui permissao" << endl;
                     iU->sock.write_uint16(CMD_ERROR);
-                } else if (err == 3) cerr << "Erro de envio dos dados"; {
+                } else {
+                    if (err == 3) cerr << "Erro de envio dos dados" << endl;
+                    if (err == 5) cerr << "Erro de leitura dos dados" << endl;
+                    if (err == 6) iU->sock.write_uint16(CMD_ERROR);
                     iU->close();
                 }
             }
@@ -332,16 +349,15 @@ void SupServidor::thr_server_main(void)
                     else iResult = iU->sock.write_uint16(CMD_OK);
                     if (iResult != mysocket_status::SOCK_OK) throw 8;
 
-                } catch (int err) {
-                    if (err >= 5 && err <=7) {
-                        t.write_uint16(CMD_ERROR);
-                        t.close();
-                    } else {
-                        if (err == 8) iU->close();
-                        else t.close();
-                        cerr << "Erro " << err << " na conexao de novo cliente" << endl;
-                    }
+                    cout << "CMD_LOGIN " << login << " (OK)" << endl;
 
+                } catch (int err) {
+                    if (err == 8) iU->close();
+                    else {
+                            if (err >= 5 && err <=7)t.write_uint16(CMD_ERROR);
+                            t.close();
+                    }
+                    cerr << "Erro " << err << " na conexao de novo cliente" << endl;
                 }
 
             }
