@@ -15,7 +15,7 @@ static double roundN(double val, int N)
 
 SupClienteQt::SupClienteQt(QWidget *parent)
   : QMainWindow(parent)
-  /* ACRESCENTAR */
+  , SupCliente()
   , ui(new Ui::SupClienteQt)
   , loginWindow(new SupLogin(this))
   , statusMsg(new QLabel(this))
@@ -155,7 +155,7 @@ SupClienteQt::~SupClienteQt()
 /// Como podem ser chamadas pela thread, nao podem alterar diretamente a interface.
 /// Devem emitir sinais que serao processados no programa principal.
 
-/*
+
 /// Exibe informacao de erro
 void SupClienteQt::virtExibirErro(const std::string& msg) const
 {
@@ -187,7 +187,7 @@ void SupClienteQt::clearState()
   // Limpa o grafico.
   image->clear();
 }
-*/
+
 
 void SupClienteQt::on_actionLogin_triggered()
 {
@@ -200,13 +200,13 @@ void SupClienteQt::on_actionLogout_triggered()
   // Desconecta caso esteja conectado
   // Esta funcao jah testa se estah conectado ou nao
   // e redesenha toda a interface.
-  /* ACRESCENTAR */
+  desconectar();
 }
 
 void SupClienteQt::on_actionQuit_triggered()
 {
   // Desconecta caso esteja conectado.
-  /* ACRESCENTAR */
+  desconectar();
   // Encerra a janela
   QCoreApplication::quit();
 }
@@ -215,21 +215,21 @@ void SupClienteQt::on_buttonV1_clicked(bool open)
 {
   // Chama funcao que altera estado da valvula 1.
   // Jah exibe msg de erro em caso de insucesso.
-  /* ACRESCENTAR */
+  setV1Open(open);
 }
 
 void SupClienteQt::on_buttonV2_clicked(bool open)
 {
   // Chama funcao que altera estado da valvula 2.
   // Jah exibe msg de erro em caso de insucesso.
-  /* ACRESCENTAR */
+  setV2Open(open);
 }
 
 void SupClienteQt::on_sliderPump_valueChanged(int value)
 {
   // Chama funcao que altera entrada da bomba.
   // Jah exibe msg de erro em caso de insucesso.
-  /* ACRESCENTAR */
+  setPumpInput(value);
 
   // Exibe valores nos displays LCD
   ui->lcdPumpVal->display(value);
@@ -245,7 +245,7 @@ void SupClienteQt::on_showLevel_toggled(bool checked)
 void SupClienteQt::on_spinRefresh_valueChanged(int arg1)
 {
   // Altera o intervalo entre solicitacoes de dados
-  /* ACRESCENTAR */
+  setTimeRefresh(arg1);
 }
 
 /// Conectar ao servidor
@@ -253,7 +253,7 @@ void SupClienteQt::slotConectar(QString IP, QString Login, QString Senha)
 {
   // Chama funcao que conecta com o servidor.
   // Jah reexibe interface em qualquer caso e exibe msg em caso de erro.
-  /* ACRESCENTAR */
+  conectar(IP.toStdString(), Login.toStdString(), Senha.toStdString());
 }
 
 // Exibir informacao de erro
@@ -275,10 +275,10 @@ void SupClienteQt::slotExibirInterface()
 
   // Booleano que indica se cliente estah conectado ou nao.
   // Chama funcao que retorna essa informacao.
-  bool estahConectado = /* MODIFICAR */false;
+  bool estahConectado = isConnected();
   // Booleano que indica se cliente eh administrador ou nao.
   // Chama funcao que retorna essa informacao.
-  bool ehAdministrador = /* MODIFICAR */false;
+  bool ehAdministrador = isAdmin();
 
   // Redesenha toda a interface.
   // O redesenho eh diferente caso o cliente esteja conectado ou nao.
@@ -315,16 +315,18 @@ void SupClienteQt::slotExibirInterface()
 
       // Barra de status
       // Texto da mensagem varia se for administrador ou nao
-      QString msg = QString(" CONNECTED: ") + QString(/* MODIFICAR */"NOME_USUARIO") +
+      QString msg = QString(" CONNECTED: ") + QString::fromStdString(meuUsuario) +
           " (" + (ehAdministrador ? "admin" : "viewer") + ")";
       statusMsg->setText(msg);
     }
 
     // Exibe nos visualizadores o ultimo estado lido da planta.
-    showValves(/* MODIFICAR */0, /* MODIFICAR */0);
-    showPump(/* MODIFICAR */0);
-    showH(/* MODIFICAR */0, /* MODIFICAR */0, /* MODIFICAR */0);
-    showFlow(/* MODIFICAR */0);
+    SupState S = lastState();
+
+    showValves(S.V1, S.V2);
+    showPump(S.PumpInput);
+    showH(S.H1, S.H2, S.ovfl);
+    showFlow(S.PumpFlow);
 
     // Exibe a imagem
     image->drawImg();
